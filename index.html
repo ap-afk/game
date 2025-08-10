@@ -34,12 +34,22 @@
     bottom: 20px;
     width: 100%;
     display: flex;
-    justify-content: space-around;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
     z-index: 999;
   }
-  .mobile-controls button {
-    padding: 14px 18px;
-    font-size: 18px;
+  .mobile-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    width: 100%;
+  }
+  .mobile-row button {
+    flex: 1;
+    min-width: 60px;
+    padding: 14px 10px;
+    font-size: 16px;
     border: none;
     border-radius: 8px;
     background: rgba(0,0,0,0.6);
@@ -87,14 +97,18 @@
 
   <!-- On-screen controls (mobile only) -->
   <div class="mobile-controls">
-    <button id="p1-left">P1 ◀</button>
-    <button id="p1-jump">P1 ⭡</button>
-    <button id="p1-right">P1 ▶</button>
-    <button id="p1-attack">P1 ⚔</button>
-    <button id="p2-left">P2 ◀</button>
-    <button id="p2-jump">P2 ⭡</button>
-    <button id="p2-right">P2 ▶</button>
-    <button id="p2-attack">P2 ⚔</button>
+    <div class="mobile-row">
+      <button id="p1-left">P1 ◀</button>
+      <button id="p1-jump">P1 ⭡</button>
+      <button id="p1-right">P1 ▶</button>
+      <button id="p1-attack">P1 ⚔</button>
+    </div>
+    <div class="mobile-row">
+      <button id="p2-left">P2 ◀</button>
+      <button id="p2-jump">P2 ⭡</button>
+      <button id="p2-right">P2 ▶</button>
+      <button id="p2-attack">P2 ⚔</button>
+    </div>
   </div>
 
 <script>
