@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Simple Fighting Game</title>
+<style>
+  :root{
+    --bg:#1b1f2a;
+    --arena:#222633;
+    --panel:#11131a;
+    --p1:#4f8cff;
+    --p2:#ff6f6f;
+    --hp-bg:#44475a;
+  }
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#ddd}
+  body{display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,var(--bg),#0f1114);}
+  .game-wrap { width: 960px; max-width:95vw; background:var(--arena); border-radius:10px; padding:14px; box-shadow:0 10px 30px rgba(0,0,0,0.6); }
+  .hud { display:flex; justify-content:space-between; gap:10px; margin-bottom:8px; }
+  .player-panel { flex:1; background:var(--panel); padding:8px; border-radius:8px; display:flex; flex-direction:column; gap:6px; }
+  .name-row { display:flex; justify-content:space-between; font-weight:600; font-size:14px; }
+  .hp-bar { height:18px; background:var(--hp-bg); border-radius:8px; overflow:hidden; }
+  .hp-fill { height:100%; width:100%; transition:width 0.12s linear; }
+  .controls { font-size:12px; opacity:0.8; }
+  #canvas { display:block; background: linear-gradient(180deg,#0f1320 0%, #151724 60%); border-radius:6px; width:100%; height:420px; }
+  .overlay { position:relative; margin-top:10px; text-align:center; color:#ddd; }
+  .message { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.45); padding:18px 24px; border-radius:10px; font-size:20px; display:none; }
+  .instructions { font-size:13px; color:#bfc7d6; margin-top:8px; }
+  .footer { font-size:12px; color:#9aa3b2; margin-top:6px; display:flex; justify-content:space-between; align-items:center;}
+
+  /* Mobile controls */
+  .mobile-controls {
+    position: fixed;
+    bottom: 20px;
+    width: 100%;
+    display: flex;
+    justify-content: space-around;
+    z-index: 999;
+  }
+  .mobile-controls button {
+    padding: 14px 18px;
+    font-size: 18px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.6);
+    color: white;
+    touch-action: none;
+  }
+  @media (min-width: 768px) {
+    .mobile-controls { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="game-wrap">
+    <div class="hud">
+      <div class="player-panel">
+        <div class="name-row">
+          <div>Player 1</div>
+          <div id="p1-health-text">100</div>
+        </div>
+        <div class="hp-bar">
+          <div id="p1-hp" class="hp-fill" style="background:var(--p1);width:100%"></div>
+        </div>
+        <div class="controls">Move: A / D &nbsp; Jump: W &nbsp; Attack: F</div>
+      </div>
+      <div class="player-panel">
+        <div class="name-row">
+          <div id="p2-health-text">100</div>
+          <div>Player 2</div>
+        </div>
+        <div class="hp-bar">
+          <div id="p2-hp" class="hp-fill" style="background:var(--p2);width:100%"></div>
+        </div>
+        <div class="controls">Move: ◀ / ▶ &nbsp; Jump: ↑ &nbsp; Attack: ↓</div>
+      </div>
+    </div>
+
+    <canvas id="canvas" width="900" height="420"></canvas>
+
+    <div class="overlay">
+      <div id="message" class="message"></div>
+      <div class="instructions">First to reduce opponent to zero wins. Click or press Space to restart.</div>
+      <div class="footer"><div>Simple Demo — No sound</div><div>Hitbox-based attack, cooldowns & knockback</div></div>
+    </div>
+  </div>
+
+  <!-- On-screen controls (mobile only) -->
+  <div class="mobile-controls">
+    <button id="p1-left">P1 ◀</button>
+    <button id="p1-jump">P1 ⭡</button>
+    <button id="p1-right">P1 ▶</button>
+    <button id="p1-attack">P1 ⚔</button>
+    <button id="p2-left">P2 ◀</button>
+    <button id="p2-jump">P2 ⭡</button>
+    <button id="p2-right">P2 ▶</button>
+    <button id="p2-attack">P2 ⚔</button>
+  </div>
+
+<script>
+"use strict";
+
+// ===== Canvas and constants =====
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width;
+const H = canvas.height;
+const GROUND_Y = H - 60;
+
+const hitSound = new Audio('hit.mp3');
+hitSound.volume = 0.6;
+hitSound.preload = 'auto';
+
+const p1HpEl = document.getElementById('p1-hp');
+const p2HpEl = document.getElementById('p2-hp');
+const p1HealthText = document.getElementById('p1-health-text');
+const p2HealthText = document.getElementById('p2-health-text');
+const msg = document.getElementById('message');
+
+let running = true;
+let winner = null;
+
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+class Player {
+  constructor(opts){
+    this.x = opts.x;
+    this.y = opts.y;
+    this.w = 48;
+    this.h = 88;
+    this.color = opts.color;
+    this.dir = 1;
+    this.vx = 0;
+    this.vy = 0;
+    this.speed = 3.0;
+    this.jumpPower = -10.5;
+    this.onGround = false;
+    this.health = 100;
+    this.maxHealth = 100;
+    this.isAttacking = false;
+    this.attackTimer = 0;
+    this.attackDuration = 180;
+    this.attackCooldown = 600;
+    this.cooldownTimer = 0;
+    this.attackRange = 48;
+    this.attackDamage = 10;
+    this.knockback = 4.5;
+    this.name = opts.name || 'Player';
+  }
+  get rect(){ return {x:this.x, y:this.y, w:this.w, h:this.h}; }
+  attack() {
+    const now = performance.now();
+    if (this.cooldownTimer > now) return false;
+    this.isAttacking = true;
+    this.attackTimer = now + this.attackDuration;
+    this.cooldownTimer = now + this.attackCooldown;
+    return true;
+  }
+  attackHitbox(){
+    const hbW = this.attackRange;
+    const hbH = 36;
+    const hbX = this.dir === 1 ? this.x + this.w : this.x - hbW;
+    const hbY = this.y + this.h/2 - hbH/2;
+    return {x: hbX, y: hbY, w: hbW, h: hbH};
+  }
+  update(dt, keys) {
+    if (keys.left) { this.vx = -this.speed; this.dir = -1; }
+    else if (keys.right) { this.vx = this.speed; this.dir = 1; }
+    else { this.vx = 0; }
+    if (keys.jump && this.onGround) {
+      this.vy = this.jumpPower;
+      this.onGround = false;
+    }
+    this.vy += 0.6;
+    this.vy = clamp(this.vy, -18, 24);
+    this.x += this.vx;
+    this.y += this.vy;
+    if (this.y + this.h >= GROUND_Y) {
+      this.y = GROUND_Y - this.h;
+      this.vy = 0;
+      this.onGround = true;
+    }
+    this.x = clamp(this.x, 16, W - 16 - this.w);
+    const now = performance.now();
+    if (this.isAttacking && now > this.attackTimer) {
+      this.isAttacking = false;
+    }
+  }
+  takeDamage(dmg, fromDir) {
+    this.health -= dmg;
+    this.health = clamp(this.health, 0, this.maxHealth);
+    try { hitSound.currentTime = 0; hitSound.play(); } catch(e) {}
+    this.vx += (fromDir === 1 ? 1 : -1) * this.knockback;
+    this.vy = -6;
+  }
+}
+
+const p1 = new Player({x:120, y:GROUND_Y-88, color:'#4f8cff', name:'Player 1'});
+const p2 = new Player({x:W-120-48, y:GROUND_Y-88, color:'#ff6f6f', name:'Player 2'});
+
+const keysState = {
+  p1: { left:false, right:false, jump:false, attack:false },
+  p2: { left:false, right:false, jump:false, attack:false }
+};
+
+const keyMap = {
+  'KeyA': () => keysState.p1.left = true,
+  'KeyD': () => keysState.p1.right = true,
+  'KeyW': () => keysState.p1.jump = true,
+  'KeyF': () => { keysState.p1.attack = true; p1.attack(); },
+  'ArrowLeft': () => keysState.p2.left = true,
+  'ArrowRight': () => keysState.p2.right = true,
+  'ArrowUp': () => keysState.p2.jump = true,
+  'ArrowDown': () => { keysState.p2.attack = true; p2.attack(); },
+};
+
+const keyMapRelease = {
+  'KeyA': () => keysState.p1.left = false,
+  'KeyD': () => keysState.p1.right = false,
+  'KeyW': () => keysState.p1.jump = false,
+  'KeyF': () => keysState.p1.attack = false,
+  'ArrowLeft': () => keysState.p2.left = false,
+  'ArrowRight': () => keysState.p2.right = false,
+  'ArrowUp': () => keysState.p2.jump = false,
+  'ArrowDown': () => keysState.p2.attack = false,
+};
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !running) restart();
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+  const fn = keyMap[e.code];
+  if (fn) fn();
+});
+window.addEventListener('keyup', e => {
+  const fn = keyMapRelease[e.code];
+  if (fn) fn();
+});
+
+// ===== Mobile controls mapping =====
+function bindTouch(id, pressFn, releaseFn) {
+  const el = document.getElementById(id);
+  el.addEventListener('touchstart', e => { e.preventDefault(); pressFn(); });
+  el.addEventListener('touchend', e => { e.preventDefault(); releaseFn(); });
+}
+bindTouch('p1-left', () => keyMap['KeyA'](), () => keyMapRelease['KeyA']());
+bindTouch('p1-right', () => keyMap['KeyD'](), () => keyMapRelease['KeyD']());
+bindTouch('p1-jump', () => keyMap['KeyW'](), () => keyMapRelease['KeyW']());
+bindTouch('p1-attack', () => keyMap['KeyF'](), () => keyMapRelease['KeyF']());
+
+bindTouch('p2-left', () => keyMap['ArrowLeft'](), () => keyMapRelease['ArrowLeft']());
+bindTouch('p2-right', () => keyMap['ArrowRight'](), () => keyMapRelease['ArrowRight']());
+bindTouch('p2-jump', () => keyMap['ArrowUp'](), () => keyMapRelease['ArrowUp']());
+bindTouch('p2-attack', () => keyMap['ArrowDown'](), () => keyMapRelease['ArrowDown']());
+
+// ===== Collision =====
+function rectIntersects(a,b){
+  return !(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h);
+}
+const attackedThisSwing = new WeakMap();
+function handleAttackCollision(attacker, defender){
+  if (!attacker.isAttacking) { attackedThisSwing.delete(attacker); return; }
+  let attackedSet = attackedThisSwing.get(attacker);
+  if (!attackedSet) { attackedSet = new Set(); attackedThisSwing.set(attacker, attackedSet); }
+  if (rectIntersects(attacker.attackHitbox(), defender.rect) && !attackedSet.has(defender)) {
+    attackedSet.add(defender);
+    defender.takeDamage(attacker.attackDamage, attacker.dir);
+  }
+}
+
+// ===== Drawing =====
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#0b0d11';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.fillStyle = '#2b2f3a';
+  ctx.fillRect(0, GROUND_Y, W, 6);
+  drawPlayer(p1);
+  drawPlayer(p2);
+  if (p1.isAttacking) drawHitbox(p1.attackHitbox(), 'rgba(79,140,255,0.35)');
+  if (p2.isAttacking) drawHitbox(p2.attackHitbox(), 'rgba(255,111,111,0.35)');
+}
+function drawPlayer(p){
+  ctx.fillStyle = p.color;
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+}
+function drawHitbox(hb, style){
+  ctx.fillStyle = style;
+  ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
+}
+
+// ===== Game State =====
+function showWinner(name) {
+  msg.style.display = 'block';
+  msg.innerHTML = `<strong>${name}</strong> wins!`;
+}
+function hideWinner(){
+  msg.style.display = 'none';
+  msg.innerHTML = '';
+}
+function update(dt){
+  p1.update(dt, keysState.p1);
+  p2.update(dt, keysState.p2);
+  handleAttackCollision(p1, p2);
+  handleAttackCollision(p2, p1);
+  p1HpEl.style.width = (p1.health / p1.maxHealth * 100) + '%';
+  p2HpEl.style.width = (p2.health / p2.maxHealth * 100) + '%';
+  p1HealthText.textContent = Math.round(p1.health);
+  p2HealthText.textContent = Math.round(p2.health);
+  if (p1.health <= 0 || p2.health <= 0) {
+    running = false;
+    winner = p1.health <= 0 ? p2.name : p1.name;
+    showWinner(winner);
+  }
+}
+
+// ===== Loop =====
+let last = performance.now();
+function loop(now){
+  const dt = now - last;
+  last = now;
+  if (running) {
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+}
+function restart() {
+  p1.x = 120; p1.y = GROUND_Y - p1.h; p1.vx = 0; p1.vy = 0; p1.health = p1.maxHealth;
+  p2.x = W - 120 - p2.w; p2.y = GROUND_Y - p2.h; p2.vx = 0; p2.vy = 0; p2.health = p2.maxHealth;
+  running = true;
+  hideWinner();
+  last = performance.now();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
